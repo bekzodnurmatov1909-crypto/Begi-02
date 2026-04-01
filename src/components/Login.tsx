@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { LogIn, Heart, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
-import { signInWithGoogle, loginWithEmail, registerWithEmail } from '../lib/firebase';
+import { signInWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from '../lib/firebase';
 import { motion } from 'motion/react';
 import { useFirebase } from '../context/FirebaseContext';
+import { toast } from 'sonner';
 
 const Login: React.FC = () => {
   const { t } = useFirebase();
@@ -12,6 +13,29 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      console.error('Google auth error:', err.code, err.message);
+      if (err.code === 'auth/popup-blocked') {
+        setError('Popup bloklandi. Iltimos, popuplarga ruxsat bering.');
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        // Ignore
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError(t('operationNotAllowed'));
+      } else {
+        setError(t('loginError'));
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,14 +48,43 @@ const Login: React.FC = () => {
         await loginWithEmail(email, password);
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Auth error:', err.code, err.message);
       if (err.code === 'auth/invalid-email') {
         setError(t('invalidEmail'));
       } else if (err.code === 'auth/weak-password') {
         setError(t('weakPassword'));
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError(t('invalidCredential'));
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError(t('emailInUse'));
+      } else if (err.code === 'auth/too-many-requests') {
+        setError(t('tooManyRequests'));
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError(t('operationNotAllowed'));
+      } else if (err.code === 'auth/network-request-failed') {
+        setError(t('networkError'));
       } else {
         setError(isRegister ? t('registerError') : t('loginError'));
+        console.error('Unknown auth error:', err.code, err.message);
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError(t('enterEmail'));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await resetPassword(email);
+      toast.success(t('resetEmailSent'));
+    } catch (err: any) {
+      console.error('Reset error:', err.code, err.message);
+      setError(err.code === 'auth/user-not-found' ? t('userNotFound') : t('loginError'));
     } finally {
       setLoading(false);
     }
@@ -100,6 +153,18 @@ const Login: React.FC = () => {
             <p className="text-sm text-danger font-medium ml-1">{error}</p>
           )}
 
+          {!isRegister && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs font-semibold text-gray-500 hover:text-primary transition-colors"
+              >
+                {t('forgotPassword')}
+              </button>
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -126,11 +191,18 @@ const Login: React.FC = () => {
         </div>
 
         <button
-          onClick={signInWithGoogle}
-          className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-semibold text-gray-700 hover:bg-gray-50 hover:border-primary/20 transition-all group"
+          onClick={handleGoogleLogin}
+          disabled={googleLoading || loading}
+          className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-semibold text-gray-700 hover:bg-gray-50 hover:border-primary/20 transition-all group disabled:opacity-50"
         >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-          <span>Google orqali kirish</span>
+          {googleLoading ? (
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          ) : (
+            <>
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
+              <span>Google orqali kirish</span>
+            </>
+          )}
         </button>
 
         <div className="pt-4">

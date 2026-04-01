@@ -10,6 +10,7 @@ import Goals from './components/Goals';
 import FitnessPlans from './components/FitnessPlans';
 import Login from './components/Login';
 import { RefreshCw } from 'lucide-react';
+import { Toaster } from 'sonner';
 
 const AppContent: React.FC = () => {
   const { user, loading, isAuthReady } = useFirebase();
@@ -52,6 +53,7 @@ export default function App() {
   return (
     <FirebaseProvider>
       <AppContent />
+      <Toaster position="top-center" richColors />
     </FirebaseProvider>
   );
 }

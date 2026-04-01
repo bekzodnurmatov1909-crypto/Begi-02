@@ -51,7 +51,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const profileSnap = await getDoc(profileRef);
         if (!profileSnap.exists()) {
           const initialProfile: UserProfile = {
-            fullName: user.displayName || 'User',
+            fullName: user.displayName || user.email?.split('@')[0] || 'User',
             email: user.email || '',
             phone: '',
             birthday: '',
