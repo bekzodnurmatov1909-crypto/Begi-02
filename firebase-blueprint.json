@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores personal and health information for the user",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "birthday": { "type": "string" },
+        "address": { "type": "string" },
+        "height": { "type": "number" },
+        "weight": { "type": "number" },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "photoUrl": { "type": "string" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "notificationsEnabled": { "type": "boolean" },
+            "waterReminder": { "type": "boolean" },
+            "workoutReminder": { "type": "boolean" },
+            "darkMode": { "type": "boolean" },
+            "fontSize": { "type": "string" },
+            "language": { "type": "string" }
+          }
+        }
+      },
+      "required": ["fullName", "email"]
+    },
+    "DailyHealth": {
+      "title": "Daily Health Data",
+      "description": "Daily snapshots of health metrics",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "distance": { "type": "number" },
+        "water": { "type": "number" },
+        "sleep": { "type": "number" },
+        "calories": { "type": "number" }
+      },
+      "required": ["date"]
+    },
+    "Goal": {
+      "title": "User Goal",
+      "description": "Health and fitness goals",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "current": { "type": "number" },
+        "target": { "type": "number" },
+        "deadline": { "type": "string" },
+        "unit": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "completed": { "type": "boolean" }
+      },
+      "required": ["title", "type", "target"]
+    },
+    "ScheduleItem": {
+      "title": "Schedule Item",
+      "description": "Daily tasks and activities",
+      "type": "object",
+      "properties": {
+        "time": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "calories": { "type": "number" },
+        "distance": { "type": "number" },
+        "duration": { "type": "number" },
+        "description": { "type": "string" },
+        "completed": { "type": "boolean" }
+      },
+      "required": ["time", "title", "type"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document"
+    },
+    "/users/{userId}/dailyHealth/{date}": {
+      "schema": "DailyHealth",
+      "description": "Daily health metrics"
+    },
+    "/users/{userId}/goals/{goalId}": {
+      "schema": "Goal",
+      "description": "User goals"
+    },
+    "/users/{userId}/schedule/{itemId}": {
+      "schema": "ScheduleItem",
+      "description": "User schedule items"
+    }
+  }
+}

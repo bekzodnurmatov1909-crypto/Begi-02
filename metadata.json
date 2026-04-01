@@ -1,0 +1,5 @@
+{
+  "name": "Sog'lom Turmush Monitori",
+  "description": "Professional sog'liqni saqlash va turmush tarzini kuzatish platformasi",
+  "requestFramePermissions": ["geolocation"]
+}
