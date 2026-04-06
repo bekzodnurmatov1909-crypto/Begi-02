@@ -1,7 +1,7 @@
 export const translations = {
   uz: {
     dashboard: 'Bosh sahifa',
-    statistics: 'Faollik',
+    statistics: 'Statistikalar',
     activity: 'Faollik',
     bmi: 'BMI hisoblash',
     aiTips: 'AI maslahatlar',
@@ -156,7 +156,7 @@ export const translations = {
   },
   ru: {
     dashboard: 'Главная',
-    statistics: 'Активность',
+    statistics: 'Статистика',
     activity: 'Активность',
     bmi: 'Расчет ИМТ',
     aiTips: 'Советы ИИ',
@@ -311,7 +311,7 @@ export const translations = {
   },
   en: {
     dashboard: 'Dashboard',
-    statistics: 'Activity',
+    statistics: 'Statistics',
     activity: 'Activity',
     bmi: 'BMI Calculator',
     aiTips: 'AI Tips',
