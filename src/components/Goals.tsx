@@ -163,14 +163,14 @@ const Goals: React.FC<GoalsProps> = ({ showToast }) => {
                     value={newGoal.type}
                     onChange={(e) => {
                       const type = e.target.value as any;
-                      const units: any = { vazn: 'kg', suv: 'L', masofa: 'km', uyqu: 'soat', kaloriya: 'kkal', boshqa: 'birlik' };
+                      const units: any = { vazn: 'kg', suv: 'L', qadamlar: 'qadam', uyqu: 'soat', kaloriya: 'kkal', boshqa: 'birlik' };
                       setNewGoal({ ...newGoal, type, unit: units[type] || 'birlik' });
                     }}
                     className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-primary/20 dark:text-white outline-none transition-all appearance-none"
                   >
                     <option value="vazn">Vazn</option>
                     <option value="suv">Suv</option>
-                    <option value="masofa">Masofa</option>
+                    <option value="qadamlar">Qadamlar</option>
                     <option value="uyqu">Uyqu</option>
                     <option value="kaloriya">Kaloriya</option>
                     <option value="boshqa">Boshqa</option>

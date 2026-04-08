@@ -63,7 +63,7 @@ const Profile: React.FC<ProfileProps> = ({ showToast }) => {
     } else if (profile?.settings) {
       // Revert to saved settings when modal is closed
       // Font size
-      switch (profile.settings.fontSize) {
+      switch (profile.settings?.fontSize) {
         case 'small': root.style.fontSize = '14px'; break;
         case 'medium': root.style.fontSize = '16px'; break;
         case 'large': root.style.fontSize = '20px'; break;
@@ -71,7 +71,7 @@ const Profile: React.FC<ProfileProps> = ({ showToast }) => {
       }
 
       // Dark mode
-      if (profile.settings.darkMode) {
+      if (profile.settings?.darkMode) {
         root.classList.add('dark');
         body.classList.add('dark');
       } else {
@@ -84,7 +84,9 @@ const Profile: React.FC<ProfileProps> = ({ showToast }) => {
   if (!profile) return null;
 
   const handleSettingsClick = () => {
-    setSettingsData(profile.settings);
+    if (profile.settings) {
+      setSettingsData(profile.settings);
+    }
     setIsSettingsOpen(true);
   };
 

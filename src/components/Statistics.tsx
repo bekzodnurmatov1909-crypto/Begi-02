@@ -38,7 +38,7 @@ const Statistics: React.FC = () => {
   }, [profile?.settings?.language]);
 
   const [chartConfigs, setChartConfigs] = useState<Record<string, { type: ChartType, color: string }>>({
-    distance: { type: 'line', color: 'emerald' },
+    steps: { type: 'line', color: 'emerald' },
     water: { type: 'line', color: 'blue' },
     sleep: { type: 'line', color: 'purple' },
     calories: { type: 'line', color: 'orange' },
@@ -59,7 +59,7 @@ const Statistics: React.FC = () => {
         return {
           date: format(day, 'yyyy-MM-dd'),
           name: format(day, 'EEEE', { locale: currentLocale }),
-          distance: dayData?.distance || 0,
+          steps: dayData?.steps || 0,
           water: dayData?.water || 0,
           sleep: dayData?.sleep || 0,
           calories: dayData?.calories || 0,
@@ -76,7 +76,7 @@ const Statistics: React.FC = () => {
         return {
           date: format(day, 'yyyy-MM-dd'),
           name: format(day, 'dd.MM'),
-          distance: dayData?.distance || 0,
+          steps: dayData?.steps || 0,
           water: dayData?.water || 0,
           sleep: dayData?.sleep || 0,
           calories: dayData?.calories || 0,
@@ -91,16 +91,16 @@ const Statistics: React.FC = () => {
       return months.map(month => {
         const monthEntries = healthHistory.filter(h => isSameMonth(parseISO(h.date), month));
         const totals = monthEntries.reduce((acc, curr) => ({
-          distance: acc.distance + curr.distance,
+          steps: acc.steps + (curr.steps || 0),
           water: acc.water + curr.water,
           sleep: acc.sleep + curr.sleep,
           calories: acc.calories + curr.calories,
-        }), { distance: 0, water: 0, sleep: 0, calories: 0 });
+        }), { steps: 0, water: 0, sleep: 0, calories: 0 });
         
         return {
           date: format(month, 'yyyy-MM'),
           name: format(month, 'MMMM', { locale: currentLocale }),
-          distance: Number(totals.distance.toFixed(1)),
+          steps: totals.steps,
           water: Number(totals.water.toFixed(1)),
           sleep: Number(totals.sleep.toFixed(1)),
           calories: totals.calories,
@@ -114,7 +114,7 @@ const Statistics: React.FC = () => {
     const fileName = `statistika_${period}_${format(new Date(), 'yyyyMMdd')}`;
     const headers = [
       period === 'year' ? t('month') : t('day'), 
-      `${t('distance')} (km)`, 
+      t('steps'), 
       `${t('water')} (L)`, 
       `${t('sleep')} (${t('hours')})`, 
       t('calories'), 
@@ -123,11 +123,11 @@ const Statistics: React.FC = () => {
     
     const rows = [...processedData].reverse().map(row => [
       period === 'year' ? row.name : format(parseISO(row.date), 'dd.MM.yyyy'),
-      `${row.distance} km`,
+      row.steps,
       `${row.water} L`,
       `${row.sleep} s`,
       row.calories,
-      row.distance >= (period === 'year' ? 150 : 5) ? t('good') : t('average')
+      row.steps >= (period === 'year' ? 300000 : 10000) ? t('good') : t('average')
     ]);
 
     if (type === 'excel') {
@@ -154,7 +154,7 @@ const Statistics: React.FC = () => {
   const summary = useMemo(() => {
     const activeData = processedData.filter(d => !d.isPlaceholder);
     if (!activeData.length) return [
-      { label: t('avgDistance'), value: '0 km', trend: '0%', icon: Footprints, color: 'text-primary' },
+      { label: t('steps'), value: '0', trend: '0%', icon: Footprints, color: 'text-primary' },
       { label: t('avgWater'), value: '0 L', trend: '0%', icon: Droplets, color: 'text-secondary' },
       { label: t('avgSleep'), value: `0 ${t('hours')}`, trend: '0%', icon: Moon, color: 'text-purple-500' },
       { label: t('avgCalories'), value: '0', trend: '0%', icon: Flame, color: 'text-warning' },
@@ -162,14 +162,14 @@ const Statistics: React.FC = () => {
 
     const count = activeData.length;
     const totals = activeData.reduce((acc, curr) => ({
-      distance: acc.distance + curr.distance,
+      steps: acc.steps + curr.steps,
       water: acc.water + curr.water,
       sleep: acc.sleep + curr.sleep,
       calories: acc.calories + curr.calories,
-    }), { distance: 0, water: 0, sleep: 0, calories: 0 });
+    }), { steps: 0, water: 0, sleep: 0, calories: 0 });
 
     return [
-      { label: t('avgDistance'), value: `${(totals.distance / count).toFixed(2)} km`, trend: '+0%', icon: Footprints, color: 'text-primary' },
+      { label: t('steps'), value: Math.round(totals.steps / count).toLocaleString(), trend: '+0%', icon: Footprints, color: 'text-primary' },
       { label: t('avgWater'), value: `${(totals.water / count).toFixed(1)} L`, trend: '+0%', icon: Droplets, color: 'text-secondary' },
       { label: t('avgSleep'), value: `${(totals.sleep / count).toFixed(1)} ${t('hours')}`, trend: '+0%', icon: Moon, color: 'text-purple-500' },
       { label: t('avgCalories'), value: Math.round(totals.calories / count).toLocaleString(), trend: '+0%', icon: Flame, color: 'text-warning' },
@@ -328,35 +328,35 @@ const Statistics: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Distance Chart */}
+        {/* Steps Chart */}
         <div className="bg-white dark:bg-[#2d2d2d] p-8 rounded-3xl shadow-sm transition-colors border border-gray-100 dark:border-gray-800 relative">
           <div className="flex justify-between items-start mb-8">
             <h3 className="text-lg font-bold dark:text-white flex items-center gap-3">
               <div className="p-2 bg-primary/10 rounded-lg">
                 <Footprints className="w-5 h-5 text-primary" />
               </div>
-              {t('distanceStats')}
+              {t('steps')}
             </h3>
             <button 
-              onClick={() => setActiveSettings(activeSettings === 'distance' ? null : 'distance')}
-              className={`p-2 rounded-lg transition-all ${activeSettings === 'distance' ? 'bg-primary text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-primary'}`}
+              onClick={() => setActiveSettings(activeSettings === 'steps' ? null : 'steps')}
+              className={`p-2 rounded-lg transition-all ${activeSettings === 'steps' ? 'bg-primary text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-primary'}`}
             >
               <Settings2 className="w-5 h-5" />
             </button>
             <AnimatePresence>
-              {activeSettings === 'distance' && (
+              {activeSettings === 'steps' && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95, y: -10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
                 >
-                  {renderSettings('distance')}
+                  {renderSettings('steps')}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
           <div className="h-80">
-            {renderChart('distance', 'distance')}
+            {renderChart('steps', 'steps')}
           </div>
         </div>
 
@@ -477,7 +477,7 @@ const Statistics: React.FC = () => {
             <thead>
               <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-50 dark:border-gray-800">
                 <th className="pb-4 px-4">{period === 'year' ? t('month') : t('day')}</th>
-                <th className="pb-4 px-4">{t('distance')}</th>
+                <th className="pb-4 px-4">{t('steps')}</th>
                 <th className="pb-4 px-4">{t('water')}</th>
                 <th className="pb-4 px-4">{t('sleep')}</th>
                 <th className="pb-4 px-4">{t('calories')}</th>
@@ -490,15 +490,15 @@ const Statistics: React.FC = () => {
                   <td className="py-4 px-4 text-sm font-semibold dark:text-white">
                     {row.name}
                   </td>
-                  <td className="py-4 px-4 text-sm text-gray-600 dark:text-gray-400">{row.distance} km</td>
+                  <td className="py-4 px-4 text-sm text-gray-600 dark:text-gray-400">{row.steps}</td>
                   <td className="py-4 px-4 text-sm text-gray-600 dark:text-gray-400">{row.water} L</td>
                   <td className="py-4 px-4 text-sm text-gray-600 dark:text-gray-400">{row.sleep} s</td>
                   <td className="py-4 px-4 text-sm text-gray-600 dark:text-gray-400">{row.calories}</td>
                   <td className="py-4 px-4">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                      row.distance >= (period === 'year' ? 150 : 5) ? 'bg-primary/10 text-primary' : 'bg-warning/10 text-warning'
+                      row.steps >= (period === 'year' ? 300000 : 10000) ? 'bg-primary/10 text-primary' : 'bg-warning/10 text-warning'
                     }`}>
-                      {row.distance >= (period === 'year' ? 150 : 5) ? t('good') : t('average')}
+                      {row.steps >= (period === 'year' ? 300000 : 10000) ? t('good') : t('average')}
                     </span>
                   </td>
                 </tr>

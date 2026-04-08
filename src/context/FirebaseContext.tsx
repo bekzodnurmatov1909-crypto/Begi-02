@@ -6,6 +6,8 @@ import { UserProfile, DailyHealth, Goal, ScheduleItem } from '../types';
 import { format } from 'date-fns';
 import { translations, Language, TranslationKey } from '../lib/translations';
 
+import { startMovementTracking, calculateCaloriesBurned, estimateSleepDuration, calculateSteps, calculateWaterIntake, calculateBMR } from '../lib/HealthTrackerService';
+
 interface FirebaseContextType {
   user: User | null;
   loading: boolean;
@@ -24,6 +26,8 @@ interface FirebaseContextType {
   updateScheduleItem: (id: string, data: Partial<ScheduleItem>) => Promise<void>;
   deleteScheduleItem: (id: string) => Promise<void>;
   logout: () => Promise<void>;
+  connectGoogleFit: () => Promise<void>;
+  syncGoogleFitData: () => Promise<void>;
   t: (key: TranslationKey) => string;
 }
 
@@ -41,6 +45,127 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const today = format(new Date(), 'yyyy-MM-dd');
 
+  // Movement Tracking Effect
+  useEffect(() => {
+    if (!user || !profile) return;
+
+    const watchId = startMovementTracking(
+      async (delta) => {
+        if (dailyHealth) {
+          const newDistance = Math.round((dailyHealth.distance + delta) * 100) / 100;
+          const newSteps = calculateSteps(newDistance);
+          const newCalories = dailyHealth.calories + calculateCaloriesBurned(delta, profile.weight || 70);
+          
+          // Calculate water based on new calories and time
+          const now = new Date();
+          const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const hoursElapsed = (now.getTime() - startOfDay.getTime()) / (1000 * 60 * 60);
+          const newWater = calculateWaterIntake(newCalories, hoursElapsed);
+          
+          await updateDailyHealth({ 
+            distance: newDistance,
+            steps: newSteps,
+            calories: Math.round(newCalories),
+            water: Math.max(dailyHealth.water, newWater)
+          });
+        }
+      },
+      (error) => console.warn('Movement tracking error:', error)
+    );
+
+    return () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [user, profile, dailyHealth?.date]); // Only restart if date changes or user changes
+
+  // Last Active Tracking Effect
+    useEffect(() => {
+    if (!user) return;
+
+    const updateLastActive = async () => {
+      await setDoc(doc(db, 'users', user.uid), { 
+        lastActive: Date.now() 
+      }, { merge: true });
+    };
+
+    const interval = setInterval(updateLastActive, 60000); // Every minute
+    updateLastActive();
+
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Automatic Water & Sleep Periodic Sync
+  useEffect(() => {
+    if (!user || !profile || !dailyHealth) return;
+
+    const periodicSync = async () => {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const hoursElapsed = (now.getTime() - startOfDay.getTime()) / (1000 * 60 * 60);
+      
+      const birthDate = profile.birthday ? new Date(profile.birthday) : new Date(1990, 0, 1);
+      const age = now.getFullYear() - birthDate.getFullYear();
+      const bmr = calculateBMR(profile.weight || 70, profile.height || 175, age, profile.gender || 'male');
+      const bmrPerHour = bmr / 24;
+      const basalCalories = Math.round(hoursElapsed * bmrPerHour);
+      
+      const newWater = calculateWaterIntake(dailyHealth.calories, hoursElapsed);
+      
+      const updates: Partial<DailyHealth> = {};
+      
+      if (newWater > dailyHealth.water) {
+        updates.water = newWater;
+      }
+
+      // Add basal calories if they are higher than current (ensures minimum burn)
+      if (basalCalories > dailyHealth.calories) {
+        updates.calories = basalCalories;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updateDailyHealth(updates);
+      }
+    };
+
+    const interval = setInterval(periodicSync, 60000 * 5); // Every 5 minutes
+    periodicSync();
+
+    return () => clearInterval(interval);
+  }, [user, profile, dailyHealth?.date]);
+
+  // Google Fit OAuth Message Listener
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        const { tokens } = event.data;
+        if (user && tokens) {
+          await updateProfile({
+            googleFitTokens: {
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token,
+              expiresAt: Date.now() + tokens.expires_in * 1000
+            }
+          });
+          // Initial sync
+          await syncGoogleFitData();
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [user]);
+
+  // Periodic Google Fit Sync
+  useEffect(() => {
+    if (!user || !profile?.googleFitTokens) return;
+
+    const interval = setInterval(async () => {
+      await syncGoogleFitData();
+    }, 60000 * 15); // Sync every 15 minutes
+
+    return () => clearInterval(interval);
+  }, [user, profile?.googleFitTokens]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
@@ -49,8 +174,11 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Profile
         const profileRef = doc(db, 'users', user.uid);
         const profileSnap = await getDoc(profileRef);
+        
+        let currentProfile: UserProfile;
+
         if (!profileSnap.exists()) {
-          const initialProfile: UserProfile = {
+          currentProfile = {
             fullName: user.displayName || user.email?.split('@')[0] || 'User',
             email: user.email || '',
             phone: '',
@@ -73,15 +201,18 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               language: 'uz'
             }
           };
-          await setDoc(profileRef, initialProfile);
+          await setDoc(profileRef, currentProfile);
+        } else {
+          currentProfile = profileSnap.data() as UserProfile;
         }
+
         onSnapshot(profileRef, (doc) => {
           if (doc.exists()) {
             const profileData = doc.data() as UserProfile;
             setProfile(profileData);
             
             // Apply dark mode class
-            if (profileData.settings.darkMode) {
+            if (profileData.settings?.darkMode) {
               document.documentElement.classList.add('dark');
               document.body.classList.add('dark');
             } else {
@@ -93,18 +224,30 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // Daily Health
         const healthRef = doc(db, 'users', user.uid, 'dailyHealth', today);
+        const healthSnap = await getDoc(healthRef);
+
+        if (!healthSnap.exists()) {
+          // Check for sleep estimation if it's the first time today
+          let estimatedSleep = 0;
+          const lastActive = (profileSnap.data() as any)?.lastActive;
+          if (lastActive) {
+            estimatedSleep = estimateSleepDuration(lastActive);
+          }
+
+          const initialHealth: DailyHealth = {
+            date: today,
+            distance: 0,
+            steps: 0,
+            water: 0,
+            sleep: estimatedSleep,
+            calories: 0
+          };
+          await setDoc(healthRef, initialHealth);
+        }
+
         onSnapshot(healthRef, (doc) => {
           if (doc.exists()) {
             setDailyHealth(doc.data() as DailyHealth);
-          } else {
-            const initialHealth: DailyHealth = {
-              date: today,
-              distance: 0,
-              water: 0,
-              sleep: 0,
-              calories: 0
-            };
-            setDoc(healthRef, initialHealth);
           }
         });
 
@@ -196,6 +339,39 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await auth.signOut();
   };
 
+  const connectGoogleFit = async () => {
+    try {
+      const response = await fetch('/api/auth/google/url');
+      const { url } = await response.json();
+      window.open(url, 'google_fit_auth', 'width=600,height=700');
+    } catch (error) {
+      console.error('Failed to get Google Auth URL:', error);
+    }
+  };
+
+  const syncGoogleFitData = async () => {
+    if (!user || !profile?.googleFitTokens) return;
+
+    try {
+      const response = await fetch('/api/health/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: profile.googleFitTokens.accessToken })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        await updateDailyHealth({
+          steps: Math.max(dailyHealth?.steps || 0, data.steps),
+          calories: Math.max(dailyHealth?.calories || 0, data.calories),
+          water: Math.max(dailyHealth?.water || 0, data.water)
+        });
+      }
+    } catch (error) {
+      console.error('Failed to sync Google Fit data:', error);
+    }
+  };
+
   const t = (key: TranslationKey): string => {
     const lang: Language = profile?.settings.language || 'uz';
     return translations[lang][key] || key;
@@ -205,7 +381,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <FirebaseContext.Provider value={{
       user, loading, profile, dailyHealth, healthHistory, goals, schedule, isAuthReady,
       updateProfile, updateDailyHealth, addGoal, updateGoal, deleteGoal,
-      addScheduleItem, updateScheduleItem, deleteScheduleItem, logout, t
+      addScheduleItem, updateScheduleItem, deleteScheduleItem, logout, connectGoogleFit, syncGoogleFitData, t
     }}>
       {children}
     </FirebaseContext.Provider>

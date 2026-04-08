@@ -25,8 +25,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, setActiveSection, isOp
   ];
 
   const getLocale = () => {
-    if (profile?.settings.language === 'ru') return ru;
-    if (profile?.settings.language === 'en') return enUS;
+    if (profile?.settings?.language === 'ru') return ru;
+    if (profile?.settings?.language === 'en') return enUS;
     return uz;
   };
 

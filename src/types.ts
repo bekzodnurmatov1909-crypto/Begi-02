@@ -12,6 +12,11 @@ export interface UserProfile {
   allergies?: string;
   emergencyContact?: string;
   settings: UserSettings;
+  googleFitTokens?: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+  };
 }
 
 export interface UserSettings {
@@ -28,6 +33,7 @@ export interface UserSettings {
 export interface DailyHealth {
   date: string;
   distance: number;
+  steps: number;
   water: number;
   sleep: number;
   calories: number;
@@ -36,7 +42,7 @@ export interface DailyHealth {
 export interface Goal {
   id: string;
   title: string;
-  type: 'vazn' | 'suv' | 'masofa' | 'uyqu' | 'kaloriya' | 'boshqa';
+  type: 'vazn' | 'suv' | 'qadamlar' | 'uyqu' | 'kaloriya' | 'boshqa';
   current: number;
   target: number;
   deadline: string;

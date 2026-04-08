@@ -153,6 +153,8 @@ export const translations = {
     resetEmailSent: 'Parolni tiklash havolasi emailingizga yuborildi',
     enterEmail: 'Iltimos, email manzilingizni kiriting',
     or: 'yoki',
+    syncSuccess: 'Ma\'lumotlar muvaffaqiyatli yangilandi',
+    syncError: 'Google Fit bilan sinxronlashda xatolik yuz berdi',
   },
   ru: {
     dashboard: 'Главная',
@@ -308,6 +310,8 @@ export const translations = {
     resetEmailSent: 'Ссылка для сброса пароля отправлена на ваш email',
     enterEmail: 'Пожалуйста, введите ваш email',
     or: 'или',
+    syncSuccess: 'Данные успешно обновлены',
+    syncError: 'Ошибка при синхронизации с Google Fit',
   },
   en: {
     dashboard: 'Dashboard',
@@ -463,6 +467,8 @@ export const translations = {
     resetEmailSent: 'Password reset link sent to your email',
     enterEmail: 'Please enter your email address',
     or: 'or',
+    syncSuccess: 'Data synced successfully',
+    syncError: 'Error syncing with Google Fit',
   }
 };
 

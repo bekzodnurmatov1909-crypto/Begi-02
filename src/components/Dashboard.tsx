@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFirebase } from '../context/FirebaseContext';
-import { Footprints, Droplets, Moon, Flame, Calendar, Plus, Filter, Clock, Tag, CheckCircle, Trash2, Edit2 } from 'lucide-react';
+import { Footprints, Droplets, Moon, Flame, Calendar, Plus, Filter, Clock, Tag, CheckCircle, Trash2, Edit2, RefreshCw, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 import Modal from './Modal';
 import { ScheduleItem } from '../types';
@@ -12,8 +12,9 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
-  const { profile, dailyHealth, schedule, addScheduleItem, updateScheduleItem, deleteScheduleItem, updateDailyHealth, t } = useFirebase();
+  const { profile, dailyHealth, schedule, addScheduleItem, updateScheduleItem, deleteScheduleItem, updateDailyHealth, connectGoogleFit, syncGoogleFitData, t } = useFirebase();
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isStatModalOpen, setIsStatModalOpen] = useState(false);
   const [editingStat, setEditingStat] = useState<{ id: string; title: string; unit: string; key: any } | null>(null);
   const [statValue, setStatValue] = useState<string>('');
@@ -26,16 +27,17 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
 
   const stats = [
     {
-      id: 'distance',
-      title: t('dailyDistance'),
-      key: 'dailyDistance',
-      value: dailyHealth?.distance || 0,
-      target: 7.5,
-      unit: 'km',
+      id: 'steps',
+      title: t('steps'),
+      key: 'steps',
+      value: dailyHealth?.steps || 0,
+      target: 10000,
+      unit: '',
       icon: Footprints,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
-      progressColor: 'bg-primary'
+      progressColor: 'bg-primary',
+      isAuto: true
     },
     {
       id: 'water',
@@ -47,7 +49,8 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
       icon: Droplets,
       color: 'text-secondary',
       bgColor: 'bg-secondary/10',
-      progressColor: 'bg-secondary'
+      progressColor: 'bg-secondary',
+      isAuto: true
     },
     {
       id: 'sleep',
@@ -59,7 +62,8 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
       icon: Moon,
       color: 'text-purple-500',
       bgColor: 'bg-purple-500/10',
-      progressColor: 'bg-purple-500'
+      progressColor: 'bg-purple-500',
+      isAuto: true
     },
     {
       id: 'calories',
@@ -67,13 +71,23 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
       key: 'calories',
       value: dailyHealth?.calories || 0,
       target: 2200,
-      unit: '',
+      unit: 'kcal',
       icon: Flame,
       color: 'text-warning',
       bgColor: 'bg-warning/10',
-      progressColor: 'bg-warning'
+      progressColor: 'bg-warning',
+      isAuto: true
     }
   ];
+
+  const handleQuickWater = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!dailyHealth) return;
+    const newWater = Math.round((dailyHealth.water + 0.25) * 100) / 100;
+    await updateDailyHealth({ water: newWater });
+    celebrate();
+    showToast?.(`+250ml ${t('waterConsumption')}`);
+  };
 
   const handleAddTask = async () => {
     if (!newTask.title || !newTask.time) return;
@@ -86,6 +100,7 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
   };
 
   const handleStatClick = (stat: any) => {
+    if (stat.isAuto) return; // Prevent manual editing of automatic stats
     setEditingStat({ id: stat.id, title: stat.title, unit: stat.unit, key: stat.key });
     setStatValue(stat.value.toString());
     setIsStatModalOpen(true);
@@ -112,6 +127,19 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
     }
   };
 
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncGoogleFitData();
+      showToast?.(t('syncSuccess') || 'Ma\'lumotlar yangilandi');
+      celebrate();
+    } catch (error) {
+      showToast?.(t('syncError') || 'Xatolik yuz berdi');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const healthScore = Math.min(100, Math.round(
     (stats.reduce((acc, stat) => acc + Math.min(stat.value / stat.target, 1), 0) / 4) * 100
   ));
@@ -127,7 +155,26 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
           <h1 className="text-3xl font-black dark:text-white tracking-tight">
             {t('welcomeMessage')}, {profile?.fullName.split(' ')[0]}! 👋
           </h1>
-          <p className="text-gray-500 font-medium">{t('trackingHealth')}</p>
+          <p className="text-gray-500 font-medium mb-6">{t('trackingHealth')}</p>
+          
+          {profile?.googleFitTokens ? (
+            <button 
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="flex items-center gap-2 px-6 py-3 bg-green-500/10 text-green-600 rounded-xl font-bold hover:bg-green-500/20 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sinxronlanmoqda...' : 'Google Fit bilan yangilash'}</span>
+            </button>
+          ) : (
+            <button 
+              onClick={connectGoogleFit}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
+            >
+              <Smartphone className="w-5 h-5" />
+              <span>Health Connect (Google Fit) ulanish</span>
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-2">
@@ -163,10 +210,17 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
         {stats.map((stat) => (
           <motion.div
             key={stat.id}
-            whileHover={{ y: -5 }}
+            whileHover={stat.isAuto ? {} : { y: -5 }}
             onClick={() => handleStatClick(stat)}
-            className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 shadow-sm cursor-pointer transition-colors border-2 border-transparent hover:border-primary/20"
+            className={`bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 shadow-sm transition-colors border-2 border-transparent relative overflow-hidden group ${stat.isAuto ? 'cursor-default' : 'cursor-pointer hover:border-primary/20'}`}
           >
+            {stat.isAuto && (
+              <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-500 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
+                Live
+              </div>
+            )}
+            
             <div className="flex items-center gap-4 mb-4">
               <div className={`w-12 h-12 rounded-full ${stat.bgColor} flex items-center justify-center`}>
                 <stat.icon className={`w-6 h-6 ${stat.color}`} />
@@ -179,6 +233,7 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
                 </div>
               </div>
             </div>
+
             <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
