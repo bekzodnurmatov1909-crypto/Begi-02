@@ -1,10 +1,61 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, getDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, getDocFromServer } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { UserProfile, DailyHealth, Goal, ScheduleItem } from '../types';
 import { format } from 'date-fns';
 import { translations, Language, TranslationKey } from '../lib/translations';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+};
 
 import { startMovementTracking, calculateCaloriesBurned, estimateSleepDuration, calculateSteps, calculateWaterIntake, calculateBMR } from '../lib/HealthTrackerService';
 
@@ -17,6 +68,7 @@ interface FirebaseContextType {
   goals: Goal[];
   schedule: ScheduleItem[];
   isAuthReady: boolean;
+  isSyncing: boolean;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
   updateDailyHealth: (data: Partial<DailyHealth>) => Promise<void>;
   addGoal: (goal: Omit<Goal, 'id'>) => Promise<void>;
@@ -26,8 +78,8 @@ interface FirebaseContextType {
   updateScheduleItem: (id: string, data: Partial<ScheduleItem>) => Promise<void>;
   deleteScheduleItem: (id: string) => Promise<void>;
   logout: () => Promise<void>;
-  connectGoogleFit: () => Promise<void>;
-  syncGoogleFitData: () => Promise<void>;
+  connectHealthConnect: () => Promise<void>;
+  syncHealthConnectData: () => Promise<void>;
   t: (key: TranslationKey) => string;
 }
 
@@ -37,6 +89,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [dailyHealth, setDailyHealth] = useState<DailyHealth | null>(null);
   const [healthHistory, setHealthHistory] = useState<DailyHealth[]>([]);
@@ -147,7 +200,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
           });
           // Initial sync
-          await syncGoogleFitData();
+          await syncHealthConnectData();
         }
       }
     };
@@ -160,13 +213,24 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user || !profile?.googleFitTokens) return;
 
     const interval = setInterval(async () => {
-      await syncGoogleFitData();
-    }, 60000 * 15); // Sync every 15 minutes
+      await syncHealthConnectData();
+    }, 60000); // Sync every 1 minute
 
     return () => clearInterval(interval);
   }, [user, profile?.googleFitTokens]);
 
   useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+        }
+      }
+    };
+    testConnection();
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       setIsAuthReady(true);
@@ -203,7 +267,22 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           };
           await setDoc(profileRef, currentProfile);
         } else {
-          currentProfile = profileSnap.data() as UserProfile;
+          const data = profileSnap.data() as UserProfile;
+          // Ensure settings exist even for old profiles
+          if (!data.settings) {
+            data.settings = {
+              notificationsEnabled: true,
+              waterReminder: true,
+              waterInterval: 60,
+              workoutReminder: true,
+              workoutInterval: 1440,
+              darkMode: false,
+              fontSize: 'medium',
+              language: 'uz'
+            };
+            await updateDoc(profileRef, { settings: data.settings });
+          }
+          currentProfile = data;
         }
 
         onSnapshot(profileRef, (doc) => {
@@ -290,98 +369,210 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.warn('updateProfile called but no user is logged in');
       return;
     }
-    console.log('Updating profile for user:', user.uid, 'with data:', data);
+    const path = `users/${user.uid}`;
     try {
       await setDoc(doc(db, 'users', user.uid), data, { merge: true });
-      console.log('Profile updated successfully in Firestore');
     } catch (error) {
-      console.error('Firestore updateProfile error:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.WRITE, path);
     }
   };
 
   const updateDailyHealth = async (data: Partial<DailyHealth>) => {
     if (!user) return;
-    await setDoc(doc(db, 'users', user.uid, 'dailyHealth', today), data, { merge: true });
+    const path = `users/${user.uid}/dailyHealth/${today}`;
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'dailyHealth', today), data, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
   };
 
   const addGoal = async (goal: Omit<Goal, 'id'>) => {
     if (!user) return;
-    await addDoc(collection(db, 'users', user.uid, 'goals'), goal);
+    const path = `users/${user.uid}/goals`;
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'goals'), goal);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
   };
 
   const updateGoal = async (id: string, data: Partial<Goal>) => {
     if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid, 'goals', id), data);
+    const path = `users/${user.uid}/goals/${id}`;
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'goals', id), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
   const deleteGoal = async (id: string) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
+    const path = `users/${user.uid}/goals/${id}`;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
   };
 
   const addScheduleItem = async (item: Omit<ScheduleItem, 'id'>) => {
     if (!user) return;
-    await addDoc(collection(db, 'users', user.uid, 'schedule'), item);
+    const path = `users/${user.uid}/schedule`;
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'schedule'), item);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
   };
 
   const updateScheduleItem = async (id: string, data: Partial<ScheduleItem>) => {
     if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid, 'schedule', id), data);
+    const path = `users/${user.uid}/schedule/${id}`;
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'schedule', id), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
   const deleteScheduleItem = async (id: string) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'schedule', id));
+    const path = `users/${user.uid}/schedule/${id}`;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'schedule', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
   };
 
   const logout = async () => {
     await auth.signOut();
   };
 
-  const connectGoogleFit = async () => {
+  const connectHealthConnect = async () => {
     try {
       const response = await fetch('/api/auth/google/url');
+      const contentType = response.headers.get('content-type');
+      
+      if (!response.ok || !contentType?.includes('application/json')) {
+        const text = await response.text();
+        console.error('Server returned non-JSON response:', text.substring(0, 100));
+        throw new Error(`Server error: ${response.status}. Expected JSON but got ${contentType}`);
+      }
+      
       const { url } = await response.json();
-      window.open(url, 'google_fit_auth', 'width=600,height=700');
-    } catch (error) {
-      console.error('Failed to get Google Auth URL:', error);
+      window.open(url, 'health_connect_auth', 'width=600,height=700');
+    } catch (error: any) {
+      console.error('Failed to get Health Connect Auth URL:', error);
     }
   };
 
-  const syncGoogleFitData = async () => {
+  const syncHealthConnectData = async () => {
     if (!user || !profile?.googleFitTokens) return;
+    setIsSyncing(true);
 
     try {
-      const response = await fetch('/api/health/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: profile.googleFitTokens.accessToken })
-      });
+      let currentAccessToken = profile.googleFitTokens.accessToken;
+      
+      // Check if token is expired or will expire in the next 5 minutes
+      if (Date.now() + 300000 > profile.googleFitTokens.expiresAt) {
+        console.log('Health Connect token expired or expiring soon, refreshing...');
+        const refreshResponse = await fetch('/api/auth/google/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: profile.googleFitTokens.refreshToken })
+        });
 
-      if (response.ok) {
-        const data = await response.json();
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json();
+          currentAccessToken = refreshData.access_token;
+          
+          // Update tokens in profile
+          await updateProfile({
+            googleFitTokens: {
+              ...profile.googleFitTokens,
+              accessToken: refreshData.access_token,
+              expiresAt: Date.now() + refreshData.expires_in * 1000
+            }
+          });
+          console.log('Health Connect token refreshed successfully');
+        } else {
+          console.error('Failed to refresh Health Connect token');
+          setIsSyncing(false);
+          return;
+        }
+      }
+
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // Increased to 45 second timeout
+
+      try {
+        const response = await fetch('/api/health/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            accessToken: currentAccessToken,
+            startTimeMillis: startOfDay.getTime(),
+            endTimeMillis: now.getTime()
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const contentType = response.headers.get('content-type');
+        if (!response.ok || !contentType?.includes('application/json')) {
+          const text = await response.text();
+          console.error('Sync server returned non-JSON response:', text.substring(0, 200));
+          throw new Error(`Server xatosi: ${response.status}. Kutilgan JSON o'rniga ${contentType} qaytdi. Iltimos, server jurnallarini tekshiring.`);
+        }
+
+        let data;
+        const text = await response.text();
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          console.error('Failed to parse JSON response:', text.substring(0, 200));
+          throw new Error('Serverdan noto\'g\'ri formatdagi ma\'lumot keldi. Iltimos, qaytadan urinib ko\'ring.');
+        }
+
         await updateDailyHealth({
           steps: Math.max(dailyHealth?.steps || 0, data.steps),
           calories: Math.max(dailyHealth?.calories || 0, data.calories),
-          water: Math.max(dailyHealth?.water || 0, data.water)
+          water: Math.max(dailyHealth?.water || 0, data.water),
+          sleep: Math.max(dailyHealth?.sleep || 0, data.sleep),
+          distance: Math.max(dailyHealth?.distance || 0, data.distance),
+          activeMinutes: Math.max(dailyHealth?.activeMinutes || 0, data.activeMinutes),
+          activityCalories: Math.max(dailyHealth?.activityCalories || 0, data.activityCalories),
+          lastSync: Date.now()
         });
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('Sinxronizatsiya vaqti tugadi (Timeout). Iltimos, qaytadan urinib ko\'ring.');
+        }
+        throw err;
       }
     } catch (error) {
-      console.error('Failed to sync Google Fit data:', error);
+      console.error('Failed to sync Health Connect data:', error);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
   const t = (key: TranslationKey): string => {
-    const lang: Language = profile?.settings.language || 'uz';
+    const lang: Language = profile?.settings?.language || 'uz';
     return translations[lang][key] || key;
   };
 
   return (
     <FirebaseContext.Provider value={{
-      user, loading, profile, dailyHealth, healthHistory, goals, schedule, isAuthReady,
+      user, loading, profile, dailyHealth, healthHistory, goals, schedule, isAuthReady, isSyncing,
       updateProfile, updateDailyHealth, addGoal, updateGoal, deleteGoal,
-      addScheduleItem, updateScheduleItem, deleteScheduleItem, logout, connectGoogleFit, syncGoogleFitData, t
+      addScheduleItem, updateScheduleItem, deleteScheduleItem, logout, connectHealthConnect, syncHealthConnectData, t
     }}>
       {children}
     </FirebaseContext.Provider>

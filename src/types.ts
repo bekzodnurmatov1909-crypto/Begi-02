@@ -37,6 +37,9 @@ export interface DailyHealth {
   water: number;
   sleep: number;
   calories: number;
+  activeMinutes?: number;
+  activityCalories?: number;
+  lastSync?: number;
 }
 
 export interface Goal {

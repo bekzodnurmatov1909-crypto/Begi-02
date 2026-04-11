@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFirebase } from '../context/FirebaseContext';
-import { Footprints, Droplets, Moon, Flame, Calendar, Plus, Filter, Clock, Tag, CheckCircle, Trash2, Edit2, RefreshCw, Smartphone } from 'lucide-react';
+import { Footprints, Droplets, Moon, Flame, Calendar, Plus, Filter, Clock, Tag, CheckCircle, Trash2, Edit2, RefreshCw, Smartphone, HelpCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import Modal from './Modal';
 import { ScheduleItem } from '../types';
@@ -12,10 +12,10 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
-  const { profile, dailyHealth, schedule, addScheduleItem, updateScheduleItem, deleteScheduleItem, updateDailyHealth, connectGoogleFit, syncGoogleFitData, t } = useFirebase();
+  const { profile, dailyHealth, schedule, addScheduleItem, updateScheduleItem, deleteScheduleItem, updateDailyHealth, connectHealthConnect, syncHealthConnectData, isSyncing, t } = useFirebase();
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isStatModalOpen, setIsStatModalOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [editingStat, setEditingStat] = useState<{ id: string; title: string; unit: string; key: any } | null>(null);
   const [statValue, setStatValue] = useState<string>('');
   const [newTask, setNewTask] = useState<Partial<ScheduleItem>>({
@@ -76,7 +76,8 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
       color: 'text-warning',
       bgColor: 'bg-warning/10',
       progressColor: 'bg-warning',
-      isAuto: true
+      isAuto: true,
+      subValue: dailyHealth?.activityCalories ? `${dailyHealth.activityCalories} kcal faol` : undefined
     }
   ];
 
@@ -128,15 +129,12 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
   };
 
   const handleSync = async () => {
-    setIsSyncing(true);
     try {
-      await syncGoogleFitData();
+      await syncHealthConnectData();
       showToast?.(t('syncSuccess') || 'Ma\'lumotlar yangilandi');
       celebrate();
     } catch (error) {
       showToast?.(t('syncError') || 'Xatolik yuz berdi');
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -146,6 +144,13 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
 
   const circumference = 2 * Math.PI * 54;
   const offset = circumference - (healthScore / 100) * circumference;
+
+  const getTimeAgo = (timestamp?: number) => {
+    if (!timestamp) return null;
+    const diff = Math.floor((Date.now() - timestamp) / 60000);
+    if (diff < 1) return t('justNow');
+    return `${diff} ${t('minutesAgo')}`;
+  };
 
   return (
     <div className="space-y-8">
@@ -158,22 +163,38 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
           <p className="text-gray-500 font-medium mb-6">{t('trackingHealth')}</p>
           
           {profile?.googleFitTokens ? (
-            <button 
-              onClick={handleSync}
-              disabled={isSyncing}
-              className="flex items-center gap-2 px-6 py-3 bg-green-500/10 text-green-600 rounded-xl font-bold hover:bg-green-500/20 transition-all disabled:opacity-50"
-            >
-              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Sinxronlanmoqda...' : 'Google Fit bilan yangilash'}</span>
-            </button>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={handleSync}
+                disabled={isSyncing}
+                className="flex items-center gap-2 px-6 py-3 bg-green-500/10 text-green-600 rounded-xl font-bold hover:bg-green-500/20 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? t('syncing') : t('syncWithHealthConnect')}</span>
+              </button>
+              {dailyHealth?.lastSync && (
+                <p className="text-[10px] text-gray-400 font-medium text-center md:text-left">
+                  {t('lastSync')}: {getTimeAgo(dailyHealth.lastSync)}
+                </p>
+              )}
+            </div>
           ) : (
-            <button 
-              onClick={connectGoogleFit}
-              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
-            >
-              <Smartphone className="w-5 h-5" />
-              <span>Health Connect (Google Fit) ulanish</span>
-            </button>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={connectHealthConnect}
+                className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
+              >
+                <Smartphone className="w-5 h-5" />
+                <span>{t('connectHealthConnect')}</span>
+              </button>
+              <button 
+                onClick={() => setIsGuideOpen(true)}
+                className="flex items-center justify-center gap-2 text-xs font-bold text-gray-400 hover:text-primary transition-colors"
+              >
+                <HelpCircle className="w-4 h-4" />
+                {t('howToConnect')}
+              </button>
+            </div>
           )}
         </div>
 
@@ -231,6 +252,9 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
                   <span className="text-2xl font-bold dark:text-white">{stat.value}</span>
                   <span className="text-xs text-gray-400">{stat.unit} / {stat.target} {stat.unit}</span>
                 </div>
+                {(stat as any).subValue && (
+                  <p className="text-[10px] font-bold text-gray-400 mt-0.5">{(stat as any).subValue}</p>
+                )}
               </div>
             </div>
 
@@ -417,6 +441,43 @@ const Dashboard: React.FC<DashboardProps> = ({ showToast }) => {
           >
             {t('update')}
           </button>
+        </div>
+      </Modal>
+      {/* Connection Guide Modal */}
+      <Modal
+        isOpen={isGuideOpen}
+        onClose={() => setIsGuideOpen(false)}
+        title={t('connectionGuide')}
+      >
+        <div className="space-y-6">
+          <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10">
+            <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+              Telefondagi Health Connect ma'lumotlarini ushbu saytga ulash uchun quyidagi amallarni bajaring:
+            </p>
+          </div>
+          
+          <div className="space-y-4">
+            {[t('step1'), t('step2'), t('step3'), t('step4')].map((step, i) => (
+              <div key={i} className="flex gap-4 items-start">
+                <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-bold shrink-0">
+                  {i + 1}
+                </div>
+                <p className="text-sm font-medium dark:text-white pt-1">{step}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-4">
+            <button 
+              onClick={() => {
+                setIsGuideOpen(false);
+                connectHealthConnect();
+              }}
+              className="w-full py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
+            >
+              {t('connectHealthConnect')}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

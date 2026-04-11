@@ -21,11 +21,11 @@ const Layout: React.FC<LayoutProps> = ({ children, activeSection, setActiveSecti
   };
 
   useEffect(() => {
-    const fontSize = profile?.settings.fontSize || 'medium';
+    const fontSize = profile?.settings?.fontSize || 'medium';
     document.documentElement.classList.remove('font-size-small', 'font-size-medium', 'font-size-large');
     document.documentElement.classList.add(`font-size-${fontSize}`);
 
-    if (profile?.settings.darkMode) {
+    if (profile?.settings?.darkMode) {
       document.documentElement.classList.add('dark');
       document.body.classList.add('dark');
     } else {

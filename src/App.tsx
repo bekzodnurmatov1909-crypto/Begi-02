@@ -11,6 +11,7 @@ import FitnessPlans from './components/FitnessPlans';
 import Login from './components/Login';
 import { RefreshCw } from 'lucide-react';
 import { Toaster } from 'sonner';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const { user, loading, isAuthReady } = useFirebase();
@@ -51,9 +52,11 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <FirebaseProvider>
-      <AppContent />
-      <Toaster position="top-center" richColors />
-    </FirebaseProvider>
+    <ErrorBoundary>
+      <FirebaseProvider>
+        <AppContent />
+        <Toaster position="top-center" richColors />
+      </FirebaseProvider>
+    </ErrorBoundary>
   );
 }
